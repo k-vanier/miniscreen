@@ -4,8 +4,16 @@ Command-line driver for the WeAct Studio **Display FS 0.96 Inch** USB screen
 (160x80 IPS, USB CDC serial, VID `1A86` / PID `FE0C`), for FreeBSD.
 It shows a live clock + CPU / RAM / GPU dashboard, images, animated GIFs or text.
 
-This is the FreeBSD port of [miniscreenWin](../miniscreenWin): same commands and rendering,
-only port detection and system readings change.
+This is the FreeBSD port of [miniscreenWin](../miniscreenWin): same commands, with
+FreeBSD port detection and system readings, and a new three-page dashboard.
+
+| Clock | Gauges | History |
+|---|---|---|
+| ![Clock page](docs/clock.png) | ![Gauges page](docs/gauges.png) | ![History page](docs/history.png) |
+
+![The three pages in portrait](docs/portrait.png)
+
+*Dashboard pages rendered by the program's own drawing code (`dashboard.go`), scaled up ×4 (×3 in portrait).*
 
 The serial protocol comes from
 [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python)
