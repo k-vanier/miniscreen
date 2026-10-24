@@ -1,7 +1,7 @@
 package main
 
-// Rendu du tableau de bord : trois pages qui tournent (horloge, jauges,
-// historiques), en paysage 160x80 comme en portrait 80x160.
+// Rendu du tableau de bord : deux pages qui tournent (jauges CPU / RAM /
+// température, puis réseau), en paysage 160x80 comme en portrait 80x160.
 
 import (
 	"fmt"
@@ -11,10 +11,8 @@ import (
 )
 
 type Stats struct {
-	Now    time.Time
 	Host   string
 	Uptime time.Duration
-	Load   [3]float64
 
 	CPU, CPUTemp      float64
 	TempOK            bool
@@ -25,10 +23,17 @@ type Stats struct {
 	NetOK          bool
 	RxRate, TxRate float64 // octets/s
 
-	CPUHist, RxHist, TxHist []float64 // une valeur par rafraîchissement
+	RxHist, TxHist []float64 // une valeur par rafraîchissement
 }
 
-const numPages = 3
+// NumPages renvoie le nombre de pages : la page réseau n'existe que si
+// le débit a pu être lu.
+func (s *Stats) NumPages() int {
+	if s.NetOK {
+		return 2
+	}
+	return 1
+}
 
 var (
 	cBg     = color.RGBA{8, 10, 18, 255}
@@ -43,11 +48,6 @@ var (
 	cPink   = color.RGBA{255, 90, 160, 255}
 	cGreen  = color.RGBA{80, 220, 120, 255}
 	cRed    = color.RGBA{255, 60, 60, 255}
-
-	joursLong = []string{"dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"}
-	jours     = []string{"dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."}
-	mois      = []string{"janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"}
-	moisCourt = []string{"janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."}
 )
 
 // alert fait virer la couleur d'une jauge au rouge au-delà de 80 %.
@@ -58,53 +58,15 @@ func alert(c color.RGBA, pct float64) color.RGBA {
 func renderDashboard(w, h, page int, s *Stats) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	fillRect(img, img.Bounds(), cBg)
-	switch page % numPages {
-	case 0:
-		pageClock(img, s)
-	case 1:
+	if page%s.NumPages() == 0 {
 		pageGauges(img, s)
-	case 2:
-		pageHistory(img, s)
+	} else {
+		pageNetwork(img, s)
 	}
 	return img
 }
 
-// ---------- page 1 : horloge ----------
-
-func pageClock(img *image.RGBA, s *Stats) {
-	w, h := img.Bounds().Dx(), img.Bounds().Dy()
-	t := s.Now
-	sec := float64(t.Second()) / 59
-	if w > h {
-		big, med, small := face(40, true), face(16, true), face(11, false)
-		hm, ss := t.Format("15:04"), t.Format(":05")
-		x := (w - textWidth(big, hm) - textWidth(med, ss)) / 2
-		drawString(img, big, x, 40, hm, cWhite)
-		drawString(img, med, x+textWidth(big, hm), 40, ss, cCyan)
-		drawCentered(img, small, w/2, 57, fmt.Sprintf("%s %d %s", joursLong[t.Weekday()], t.Day(), mois[t.Month()-1]), cGrey)
-		drawCentered(img, face(9, false), w/2, 70, s.Host+"  ·  up "+fmtUptime(s.Uptime), cDim)
-		progress(img, image.Rect(8, 74, w-8, 77), sec, cCyan)
-		return
-	}
-	big, small := face(40, true), face(11, false)
-	drawCentered(img, big, w/2, 42, t.Format("15"), cWhite)
-	drawCentered(img, big, w/2, 80, t.Format("04"), cWhite)
-	progress(img, image.Rect(10, 89, w-10, 92), sec, cCyan)
-	drawCentered(img, face(14, true), w/2, 110, t.Format(":05"), cCyan)
-	drawCentered(img, small, w/2, 127, fmt.Sprintf("%s %d", jours[t.Weekday()], t.Day()), cGrey)
-	drawCentered(img, small, w/2, 140, moisCourt[t.Month()-1], cGrey)
-	drawCentered(img, face(9, false), w/2, 154, "up "+fmtUptime(s.Uptime), cDim)
-}
-
-func progress(img *image.RGBA, r image.Rectangle, frac float64, c color.RGBA) {
-	rad := float64(r.Dy()) / 2
-	roundRect(img, r, rad, cTrack)
-	if fill := int(float64(r.Dx())*frac + 0.5); fill >= r.Dy() {
-		roundRect(img, image.Rect(r.Min.X, r.Min.Y, r.Min.X+fill, r.Max.Y), rad, c)
-	}
-}
-
-// ---------- page 2 : jauges ----------
+// ---------- page 1 : jauges ----------
 
 type gauge struct {
 	label, value string
@@ -133,7 +95,7 @@ func pageGauges(img *image.RGBA, s *Stats) {
 	if w > h {
 		hdr := face(10, false)
 		drawString(img, hdr, 4, 10, s.Host, cGrey)
-		drawRight(img, face(10, true), w-4, 10, s.Now.Format("15:04"), cWhite)
+		drawRight(img, hdr, w-4, 10, "up "+fmtUptime(s.Uptime), cDim)
 		cell := float64(w) / float64(len(gs))
 		d := min(cell-6, 48)
 		for i, g := range gs {
@@ -160,46 +122,30 @@ func drawRing(img *image.RGBA, cx, cy, d float64, g gauge) {
 	drawCentered(img, f, int(cx+0.5), int(cy)+asc/2, g.value, cWhite)
 }
 
-// ---------- page 3 : historiques ----------
+// ---------- page 2 : réseau ----------
 
-func pageHistory(img *image.RGBA, s *Stats) {
+func pageNetwork(img *image.RGBA, s *Stats) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
-	var cpuR, netR image.Rectangle
-	switch {
-	case !s.NetOK:
-		cpuR = image.Rect(2, 2, w-2, h-2)
-	case w > h:
-		cpuR, netR = image.Rect(2, 2, w-2, h/2-1), image.Rect(2, h/2+1, w-2, h-2)
-	default:
-		cpuR, netR = image.Rect(2, 2, w-2, h/2-2), image.Rect(2, h/2+2, w-2, h-2)
+	down, up := "↓ "+fmtRate(s.RxRate)+"/s", "↑ "+fmtRate(s.TxRate)+"/s"
+	fb := face(12, true)
+	var r image.Rectangle
+	if w > h {
+		drawString(img, fb, 4, 13, down, cGreen)
+		drawRight(img, fb, w-4, 13, up, cViolet)
+		r = image.Rect(2, 18, w-2, h-2)
+	} else {
+		drawCentered(img, fb, w/2, 16, down, cGreen)
+		drawCentered(img, fb, w/2, 33, up, cViolet)
+		r = image.Rect(2, 40, w-2, h-2)
 	}
-
-	panel(img, cpuR)
-	chart := cpuR.Inset(2)
-	chart.Min.Y += 12
-	areaChart(img, chart, s.CPUHist, 100, alert(cCyan, s.CPU))
-	f, fb := face(9, false), face(10, true)
-	drawString(img, f, cpuR.Min.X+4, cpuR.Min.Y+11, "CPU", cGrey)
-	drawRight(img, fb, cpuR.Max.X-4, cpuR.Min.Y+11, fmt.Sprintf("%.0f%%", s.CPU), cWhite)
-	if w > h || !s.NetOK {
-		drawCentered(img, f, (cpuR.Min.X+cpuR.Max.X)/2, cpuR.Min.Y+11, fmt.Sprintf("load %.2f", s.Load[0]), cDim)
-	}
-	if !s.NetOK {
-		return
-	}
-
-	panel(img, netR)
-	chart = netR.Inset(2)
-	chart.Min.Y += 12
+	panel(img, r)
+	chart := r.Inset(3)
 	peak := 1024.0 // échelle minimale : 1 Ko/s
 	for i := range s.RxHist {
 		peak = max(peak, s.RxHist[i], s.TxHist[i])
 	}
 	areaChart(img, chart, s.RxHist, peak*1.1, cGreen)
 	lineChart(img, chart, s.TxHist, peak*1.1, cViolet)
-	down, up := "↓"+fmtRate(s.RxRate), "↑"+fmtRate(s.TxRate)
-	drawString(img, fb, netR.Min.X+4, netR.Min.Y+11, down, cGreen)
-	drawRight(img, fb, netR.Max.X-4, netR.Min.Y+11, up, cViolet)
 }
 
 func panel(img *image.RGBA, r image.Rectangle) {

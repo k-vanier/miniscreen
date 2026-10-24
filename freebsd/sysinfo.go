@@ -91,19 +91,6 @@ func CPUTemp() (temp float64, ok bool) {
 	return temp, ok
 }
 
-// LoadAvg renvoie la charge moyenne sur 1, 5 et 15 minutes (vm.loadavg,
-// trois fixpt_t en virgule fixe sur FSHIFT = 11 bits).
-func LoadAvg() (l [3]float64) {
-	raw, err := unix.SysctlRaw("vm.loadavg")
-	if err != nil || len(raw) < 12 {
-		return l
-	}
-	for i := range l {
-		l[i] = float64(binary.NativeEndian.Uint32(raw[i*4:])) / 2048
-	}
-	return l
-}
-
 // Uptime renvoie le temps écoulé depuis le démarrage (kern.boottime).
 func Uptime() time.Duration {
 	tv, err := unix.SysctlTimeval("kern.boottime")
