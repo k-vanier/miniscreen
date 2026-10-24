@@ -2,9 +2,13 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
+	"fmt"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -72,4 +76,67 @@ func GPU() (load, temp float64, ok bool) {
 	load, err1 := strconv.ParseFloat(strings.TrimSpace(f[0]), 64)
 	temp, err2 := strconv.ParseFloat(strings.TrimSpace(f[1]), 64)
 	return load, temp, err1 == nil && err2 == nil
+}
+
+// CPUTemp renvoie la température CPU la plus haute (°C), lue dans
+// dev.cpu.N.temperature (modules coretemp ou amdtemp) ; ok=false si absente.
+func CPUTemp() (temp float64, ok bool) {
+	for n := 0; n < runtime.NumCPU(); n++ {
+		dk, err := unix.SysctlUint32(fmt.Sprintf("dev.cpu.%d.temperature", n)) // dixièmes de kelvin
+		if err != nil {
+			break
+		}
+		temp, ok = max(temp, (float64(int32(dk))-2731)/10), true
+	}
+	return temp, ok
+}
+
+// LoadAvg renvoie la charge moyenne sur 1, 5 et 15 minutes (vm.loadavg,
+// trois fixpt_t en virgule fixe sur FSHIFT = 11 bits).
+func LoadAvg() (l [3]float64) {
+	raw, err := unix.SysctlRaw("vm.loadavg")
+	if err != nil || len(raw) < 12 {
+		return l
+	}
+	for i := range l {
+		l[i] = float64(binary.NativeEndian.Uint32(raw[i*4:])) / 2048
+	}
+	return l
+}
+
+// Uptime renvoie le temps écoulé depuis le démarrage (kern.boottime).
+func Uptime() time.Duration {
+	tv, err := unix.SysctlTimeval("kern.boottime")
+	if err != nil {
+		return 0
+	}
+	return time.Since(time.Unix(int64(tv.Sec), int64(tv.Usec)*1000))
+}
+
+// NetBytes renvoie le total d'octets reçus et envoyés par les interfaces
+// (hors loopback), d'après netstat -ibn --libxo json ; ok=false en cas d'échec.
+func NetBytes() (rx, tx uint64, ok bool) {
+	out, err := exec.Command("netstat", "-ibn", "--libxo", "json").Output()
+	if err != nil {
+		return 0, 0, false
+	}
+	var v struct {
+		Statistics struct {
+			Interface []struct {
+				Name    string `json:"name"`
+				Network string `json:"network"`
+				Rx      uint64 `json:"received-bytes"`
+				Tx      uint64 `json:"sent-bytes"`
+			} `json:"interface"`
+		} `json:"statistics"`
+	}
+	if json.Unmarshal(out, &v) != nil {
+		return 0, 0, false
+	}
+	for _, i := range v.Statistics.Interface {
+		if strings.HasPrefix(i.Network, "<Link") && !strings.HasPrefix(i.Name, "lo") {
+			rx, tx, ok = rx+i.Rx, tx+i.Tx, true
+		}
+	}
+	return rx, tx, ok
 }

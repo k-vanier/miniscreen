@@ -52,7 +52,7 @@ miniscreen [options] <command> [arguments]
 
 | Command | What it does |
 |---|---|
-| `info [-interval 1s]` | Live dashboard: clock, date, CPU / RAM / GPU bars, GPU temperature. Ctrl+C to quit. |
+| `info [-interval 1s] [-rotate 8s] [-page N]` | Live dashboard with three pages: clock, gauges, history (see below). Ctrl+C to quit. |
 | `image [-cover] [-loop N] <file>` | Shows an image (png, jpg, bmp, webp, animated GIF). Fitted with black bars by default; `-cover` fills the screen and crops. `-loop` = number of GIF loops (0 = forever). |
 | `text [-color hex] [-bg hex] <text>` | Shows text, font size chosen automatically to fit. `\n` = new line. |
 | `clear [-color hex]` | Fills the screen with a colour (black by default). |
@@ -82,22 +82,36 @@ miniscreen clear -color 202040
 
 ## Dashboard
 
-- **Landscape:** time with seconds on the left, date and GPU temperature on the right,
-  CPU / RAM / GPU bars below.
-- **Portrait:** time and date centred at the top, then one block per metric
-  (label and value above a full-width bar).
+`info` cycles through three pages (every 8 s by default, `-rotate` to change it,
+`-page N` to stay on one page). Each page has a landscape and a portrait layout.
 
-Bars turn green below 60 %, orange below 85 %, red above.
-CPU comes from `kern.cp_time`; RAM from `hw.physmem` and `vm.stats.vm.*`
-(available = free + inactive + laundry pages, as in `top`; the ZFS ARC counts as used).
-GPU load and temperature come from `nvidia-smi` (`nvidia-driver` package).
-Without an NVIDIA GPU the GPU line is simply hidden.
+1. **Clock:** big time with seconds, full date, hostname and uptime,
+   plus a bar that fills over the minute.
+2. **Gauges:** ring gauges for CPU, RAM, CPU temperature and GPU, each in its own
+   colour, turning red above 80 %. The temperature and GPU rings only appear when
+   the reading exists.
+3. **History:** CPU load over the last ~160 s with the 1-minute load average,
+   and network traffic (download as a green area, upload as a violet line).
+
+Sources:
+
+| Reading | Source |
+|---|---|
+| CPU | `kern.cp_time` |
+| RAM | `hw.physmem` and `vm.stats.vm.*` (available = free + inactive + laundry pages, as in `top`; the ZFS ARC counts as used) |
+| CPU temperature | `dev.cpu.N.temperature`, needs `kldload coretemp` (Intel) or `kldload amdtemp` (AMD) |
+| Load average, uptime | `vm.loadavg`, `kern.boottime` |
+| Network | `netstat -ibn --libxo json`, all interfaces except loopback |
+| GPU | `nvidia-smi` (`nvidia-driver` package) |
 
 ## Differences from miniscreenWin
 
 - `go.bug.st/serial`'s USB enumerator is not implemented on FreeBSD, so `ports.go` reads
   `dev.<driver>.<n>.ttyname` and `dev.<driver>.<n>.%pnpinfo` for the ucom drivers instead.
 - `sysinfo.go` uses sysctl instead of the Windows API.
+- The serial port is opened with DTR and RTS on, as Windows does, and every write waits
+  until it has left (`tcdrain`); without that the screen ignores bitmaps.
+  Calls interrupted by a signal (EINTR) are retried.
 - The code builds for FreeBSD only (it calls `golang.org/x/sys/unix` sysctl helpers).
 
 ## Files
@@ -106,5 +120,7 @@ Without an NVIDIA GPU the GPU line is simply hidden.
 |---|---|
 | `lcd.go` | Screen protocol: port detection, orientation, brightness, fill, bitmap upload |
 | `ports.go` | USB serial port listing through sysctl |
-| `sysinfo.go` | CPU, RAM and GPU readings |
-| `main.go` | Commands, image and GIF rendering, text layout, dashboard |
+| `sysinfo.go` | CPU, RAM, temperature, load, uptime, network and GPU readings |
+| `draw.go` | Fonts and anti-aliased drawing: text, rounded rectangles, rings, charts |
+| `dashboard.go` | Dashboard pages, independent of the screen and of FreeBSD |
+| `main.go` | Commands, image and GIF rendering, text layout, dashboard loop |

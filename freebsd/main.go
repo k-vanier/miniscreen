@@ -17,10 +17,6 @@ import (
 
 	_ "golang.org/x/image/bmp"
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/goregular"
-	"golang.org/x/image/font/opentype"
-	"golang.org/x/image/math/fixed"
 	_ "golang.org/x/image/webp"
 
 	xdraw "golang.org/x/image/draw"
@@ -31,7 +27,8 @@ const usage = `miniscreen - pilote pour l'écran WeAct Display FS 0.96" (160x80)
 Usage : miniscreen [options] <commande> [arguments]
 
 Commandes :
-  info  [-interval 1s]              horloge + CPU / RAM / GPU en continu (Ctrl+C pour quitter)
+  info  [-interval 1s] [-rotate 8s] [-page N]
+                                    tableau de bord : horloge, jauges, historiques (Ctrl+C pour quitter)
   image [-cover] [-loop N] <fichier>  affiche une image (png, jpg, gif animé, bmp, webp)
   text  [-color hex] [-bg hex] <texte>  affiche du texte, taille auto (\n = retour à la ligne)
   clear [-color hex]                remplit l'écran d'une couleur (noir par défaut)
@@ -88,8 +85,10 @@ func main() {
 	case "info":
 		fs := flag.NewFlagSet("info", flag.ExitOnError)
 		interval := fs.Duration("interval", time.Second, "intervalle de rafraîchissement")
+		rotate := fs.Duration("rotate", 8*time.Second, "durée d'affichage de chaque page")
+		page := fs.Int("page", 0, "page fixe : 1 horloge, 2 jauges, 3 historiques (0 = rotation)")
 		fs.Parse(args)
-		check(runInfo(lcd, *interval))
+		check(runInfo(lcd, *interval, *rotate, *page-1))
 	case "image":
 		fs := flag.NewFlagSet("image", flag.ExitOnError)
 		cover := fs.Bool("cover", false, "remplit tout l'écran en rognant (au lieu d'ajouter des bandes noires)")
@@ -163,36 +162,6 @@ func parseHex(s string) color.RGBA {
 		fail("couleur invalide : " + s)
 	}
 	return color.RGBA{uint8(v >> 16), uint8(v >> 8), uint8(v), 255}
-}
-
-// ---------- polices ----------
-
-var fontCache = map[string]font.Face{}
-
-func face(size float64, bold bool) font.Face {
-	key := fmt.Sprint(size, bold)
-	if f, ok := fontCache[key]; ok {
-		return f
-	}
-	data := goregular.TTF
-	if bold {
-		data = gobold.TTF
-	}
-	ft, err := opentype.Parse(data)
-	check(err)
-	f, err := opentype.NewFace(ft, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingFull})
-	check(err)
-	fontCache[key] = f
-	return f
-}
-
-func textWidth(f font.Face, s string) int {
-	return font.MeasureString(f, s).Ceil()
-}
-
-func drawString(dst draw.Image, f font.Face, x, baseline int, s string, c color.Color) {
-	d := font.Drawer{Dst: dst, Src: image.NewUniform(c), Face: f, Dot: fixed.P(x, baseline)}
-	d.DrawString(s)
 }
 
 func newCanvas(lcd *LCD, bg color.Color) *image.RGBA {
@@ -330,79 +299,45 @@ func showText(lcd *LCD, txt string, fg, bg color.RGBA) error {
 
 // ---------- tableau de bord ----------
 
-var (
-	jours  = []string{"dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."}
-	cWhite = color.RGBA{255, 255, 255, 255}
-	cGrey  = color.RGBA{140, 140, 150, 255}
-	cTrack = color.RGBA{40, 40, 48, 255}
-	cCyan  = color.RGBA{80, 200, 255, 255}
-)
-
-func levelColor(p float64) color.RGBA {
-	switch {
-	case p < 60:
-		return color.RGBA{60, 210, 90, 255}
-	case p < 85:
-		return color.RGBA{255, 170, 30, 255}
-	default:
-		return color.RGBA{240, 60, 50, 255}
+func runInfo(lcd *LCD, interval, rotate time.Duration, fixedPage int) error {
+	const histLen = 160
+	push := func(h []float64, v float64) []float64 {
+		h = append(h, v)
+		return h[max(0, len(h)-histLen):]
 	}
-}
-
-// bar dessine une jauge : sur une ligne en paysage, et en portrait
-// libellé + valeur au-dessus d'une barre pleine largeur.
-func bar(dst *image.RGBA, f font.Face, y int, label string, pct float64, value string) {
-	w, h := dst.Bounds().Dx(), dst.Bounds().Dy()
-	drawString(dst, f, 3, y+10, label, cGrey)
-	drawString(dst, f, w-2-textWidth(f, value), y+10, value, cWhite)
-	x0, x1, top := 32, w-42, y+2
-	if h > w {
-		x0, x1, top = 3, w-3, y+13
-	}
-	draw.Draw(dst, image.Rect(x0, top, x1, top+8), image.NewUniform(cTrack), image.Point{}, draw.Src)
-	fill := x0 + int(float64(x1-x0)*max(0, min(100, pct))/100)
-	draw.Draw(dst, image.Rect(x0, top, fill, top+8), image.NewUniform(levelColor(pct)), image.Point{}, draw.Src)
-}
-
-func runInfo(lcd *LCD, interval time.Duration) error {
 	var cpu cpuSampler
 	cpu.Sample()
+	host, _ := os.Hostname()
+	host, _, _ = strings.Cut(host, ".")
+	rx0, tx0, _ := NetBytes()
+	last, start := time.Now(), time.Now()
 	time.Sleep(200 * time.Millisecond)
-	big, small, lbl := face(22, true), face(11, false), face(11, true)
+	s := &Stats{Host: host}
 	for {
 		now := time.Now()
-		c := newCanvas(lcd, color.Black)
-		w, h := c.Bounds().Dx(), c.Bounds().Dy()
+		dt := now.Sub(last).Seconds()
+		last = now
 
-		date := fmt.Sprintf("%s %s", jours[now.Weekday()], now.Format("02/01"))
-		if h > w { // portrait : heure et date centrées l'une sous l'autre
-			hm := now.Format("15:04")
-			drawString(c, big, (w-textWidth(big, hm))/2, 26, hm, cWhite)
-			drawString(c, small, (w-textWidth(small, date))/2, 42, date, cGrey)
-		} else {
-			drawString(c, big, 3, 22, now.Format("15:04:05"), cWhite)
-			drawString(c, small, w-2-textWidth(small, date), 10, date, cGrey)
+		s.Now, s.Uptime, s.Load = now, Uptime(), LoadAvg()
+		s.CPU = cpu.Sample()
+		s.CPUTemp, s.TempOK = CPUTemp()
+		s.RAMUsed, s.RAMTotal = Memory()
+		s.GPULoad, s.GPUTemp, s.GPUOK = GPU()
+		var rx, tx uint64
+		if rx, tx, s.NetOK = NetBytes(); s.NetOK {
+			s.RxRate, s.TxRate = float64(rx-rx0)/dt, float64(tx-tx0)/dt
+			rx0, tx0 = rx, tx
 		}
+		s.CPUHist = push(s.CPUHist, s.CPU)
+		s.RxHist = push(s.RxHist, s.RxRate)
+		s.TxHist = push(s.TxHist, s.TxRate)
 
-		load, temp, gpuOK := GPU()
-		if gpuOK && h <= w {
-			t := fmt.Sprintf("%.0f°C", temp)
-			drawString(c, small, w-2-textWidth(small, t), 22, t, cCyan)
+		page := max(0, fixedPage)
+		if fixedPage < 0 && rotate > 0 {
+			page = int(now.Sub(start)/rotate) % numPages
 		}
-
-		cp := cpu.Sample()
-		used, total := Memory()
-		y, step := h-50, 16
-		if h > w {
-			y, step = 54, 34
-		}
-		bar(c, lbl, y, "CPU", cp, fmt.Sprintf("%.0f%%", cp))
-		bar(c, lbl, y+step, "RAM", 100*used/total, fmt.Sprintf("%.1fG", used))
-		if gpuOK {
-			bar(c, lbl, y+2*step, "GPU", load, fmt.Sprintf("%.0f%%", load))
-		}
-
-		if err := lcd.Draw(c, 0, 0); err != nil {
+		w, h := lcd.Size()
+		if err := lcd.Draw(renderDashboard(w, h, page, s), 0, 0); err != nil {
 			return err
 		}
 		time.Sleep(interval - time.Since(now))
