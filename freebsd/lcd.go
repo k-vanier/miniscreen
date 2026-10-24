@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.bug.st/serial"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -61,7 +62,20 @@ func OpenLCD(name string) (*LCD, error) {
 	} else if !strings.HasPrefix(name, "/") {
 		name = "/dev/" + name // -port cuaU0
 	}
-	p, err := serial.Open(name, &serial.Mode{BaudRate: 115200})
+	// DTR et RTS actifs comme sous Windows (go.bug.st/serial ne les force pas
+	// sous Unix) : l'écran CDC n'affiche rien sans DTR.
+	mode := &serial.Mode{BaudRate: 115200, InitialStatusBits: &serial.ModemOutputBits{DTR: true, RTS: true}}
+	// Sous FreeBSD, le TIOCSETA d'umodem attend une requête USB et peut être
+	// interrompu par un signal (EINTR) ; go.bug.st/serial ne le relance pas.
+	var p serial.Port
+	var err error
+	for try := 0; try < 10; try++ {
+		p, err = serial.Open(name, mode)
+		if err == nil || !strings.Contains(err.Error(), unix.EINTR.Error()) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("ouverture de %s : %w", name, err)
 	}
@@ -72,9 +86,26 @@ func OpenLCD(name string) (*LCD, error) {
 
 func (l *LCD) Close() error { return l.port.Close() }
 
+// write envoie tout b puis attend qu'il soit parti (tcdrain), comme une
+// écriture synchrone sous Windows : sans cela l'écran ignore les bitmaps. La bibliothèque ne relance
+// ni les écritures partielles ni les appels interrompus par un signal.
 func (l *LCD) write(b []byte) error {
-	_, err := l.port.Write(b)
-	return err
+	for len(b) > 0 {
+		n, err := l.port.Write(b)
+		b = b[n:]
+		if err == unix.EINTR || err == unix.EAGAIN {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+	}
+	for {
+		err := l.port.Drain()
+		if err != unix.EINTR {
+			return err
+		}
+	}
 }
 
 // Version renvoie la chaîne de version du firmware (réponse de 19 octets).
