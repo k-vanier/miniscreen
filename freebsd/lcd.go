@@ -86,8 +86,10 @@ func OpenLCD(name string) (*LCD, error) {
 
 func (l *LCD) Close() error { return l.port.Close() }
 
-// write envoie tout b : la bibliothèque ne relance ni les écritures
-// partielles ni celles interrompues par un signal.
+// write envoie tout b puis attend qu'il soit parti (tcdrain), comme une
+// écriture synchrone sous Windows : sinon le tty FreeBSD enchaîne en-tête et
+// pixels d'un seul jet et l'écran ignore le bitmap. La bibliothèque ne relance
+// ni les écritures partielles ni les appels interrompus par un signal.
 func (l *LCD) write(b []byte) error {
 	for len(b) > 0 {
 		n, err := l.port.Write(b)
@@ -99,7 +101,12 @@ func (l *LCD) write(b []byte) error {
 			return err
 		}
 	}
-	return nil
+	for {
+		err := l.port.Drain()
+		if err != unix.EINTR {
+			return err
+		}
+	}
 }
 
 // Version renvoie la chaîne de version du firmware (réponse de 19 octets).
