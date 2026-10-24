@@ -44,6 +44,32 @@ to make it permanent).
 `/dev/cuaU*` belongs to `uucp:dialer`, so add your user to the `dialer` group
 (`pw groupmod dialer -m $USER`, then log in again) or run as root.
 
+## Service at boot
+
+`rc.d/miniscreen` runs the dashboard at boot under `daemon(8)`. It restarts miniscreen
+5 s after any exit (screen unplugged, not attached yet) and sends its output to syslog
+(`/var/log/messages`, tag `miniscreen`). When the service stops, the screen is blanked.
+
+Install, as root, from this folder after `go build`:
+
+```
+install -m 755 miniscreen /usr/local/bin/miniscreen
+install -m 555 rc.d/miniscreen /usr/local/etc/rc.d/miniscreen
+sysrc miniscreen_enable=YES
+service miniscreen start
+```
+
+Optional settings (`sysrc`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `miniscreen_args` | `info` | Command and options, e.g. `"-brightness 60 info -rotate 10s"` |
+| `miniscreen_bin` | `/usr/local/bin/miniscreen` | Path of the binary |
+
+To have the CPU temperature from boot: `sysrc kld_list+=coretemp` (or `amdtemp`).
+`service miniscreen stop|restart|status` control it. After rebuilding, run the
+`install -m 755` line again, then `service miniscreen restart`.
+
 ## Usage
 
 ```
@@ -124,3 +150,4 @@ Sources:
 | `draw.go` | Fonts and anti-aliased drawing: text, rounded rectangles, rings, charts |
 | `dashboard.go` | Dashboard pages, independent of the screen and of FreeBSD |
 | `main.go` | Commands, image and GIF rendering, text layout, dashboard loop |
+| `rc.d/miniscreen` | FreeBSD rc.d script to run the dashboard at boot |

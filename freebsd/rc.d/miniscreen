@@ -1,0 +1,34 @@
+#!/bin/sh
+
+# PROVIDE: miniscreen
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+#
+# Tableau de bord sur l'écran WeAct 0.96" au démarrage.
+# Réglages dans /etc/rc.conf (avec sysrc) :
+#   miniscreen_enable="YES"
+#   miniscreen_args="info"   commande et options, ex. "-brightness 60 info -rotate 10s"
+#   miniscreen_bin="/usr/local/bin/miniscreen"
+#
+# daemon(8) relance miniscreen 5 s après chaque sortie (écran débranché,
+# pas encore détecté au boot...) et envoie sa sortie dans syslog.
+
+. /etc/rc.subr
+
+name="miniscreen"
+rcvar="miniscreen_enable"
+
+load_rc_config $name
+
+: ${miniscreen_enable:="NO"}
+: ${miniscreen_args:="info"}
+: ${miniscreen_bin:="/usr/local/bin/miniscreen"}
+# nvidia-smi est dans /usr/local/bin, absent du PATH de rc.
+: ${miniscreen_env:="PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin"}
+
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+command_args="-P ${pidfile} -r -R 5 -S -T ${name} ${miniscreen_bin} ${miniscreen_args}"
+required_files="${miniscreen_bin}"
+
+run_rc_command "$1"
