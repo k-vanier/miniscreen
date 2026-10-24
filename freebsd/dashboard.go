@@ -40,7 +40,7 @@ type palette struct {
 	cyan, violet, orange, pink, green, red color.RGBA
 }
 
-// Thème clair par défaut ; accents plus foncés pour rester lisibles sur blanc.
+// Thème clair (option -light) ; accents plus foncés pour rester lisibles sur blanc.
 var lightPalette = palette{
 	bg:     color.RGBA{246, 248, 251, 255},
 	panel:  color.RGBA{232, 236, 243, 255},
@@ -71,7 +71,7 @@ var darkPalette = palette{
 	red:    color.RGBA{255, 60, 60, 255},
 }
 
-var pal = lightPalette
+var pal = darkPalette // thème par défaut
 
 // alert fait virer la couleur d'une jauge au rouge au-delà de 80 %.
 func alert(c color.RGBA, pct float64) color.RGBA {
