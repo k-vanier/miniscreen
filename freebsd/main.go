@@ -10,9 +10,11 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "golang.org/x/image/bmp"
@@ -305,6 +307,10 @@ func runInfo(lcd *LCD, interval, rotate time.Duration, fixedPage int) error {
 	rx0, tx0, _ := NetBytes()
 	last, start := time.Now(), time.Now()
 	time.Sleep(200 * time.Millisecond)
+	// À l'arrêt (Ctrl+C, service miniscreen stop, extinction), on éteint
+	// l'écran plutôt que de laisser une heure figée.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	s := &Stats{Host: host}
 	for {
 		now := time.Now()
@@ -333,6 +339,10 @@ func runInfo(lcd *LCD, interval, rotate time.Duration, fixedPage int) error {
 		if err := lcd.Draw(renderDashboard(w, h, page, s), 0, 0); err != nil {
 			return err
 		}
-		time.Sleep(interval - time.Since(now))
+		select {
+		case <-stop:
+			return lcd.Fill(0, 0, 0)
+		case <-time.After(interval - time.Since(now)):
+		}
 	}
 }
