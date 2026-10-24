@@ -30,7 +30,7 @@ Usage : miniscreen [options] <commande> [arguments]
 
 Commandes :
   info  [-interval 1s] [-rotate 8s] [-page N]
-                                    tableau de bord : horloge, jauges, historiques (Ctrl+C pour quitter)
+                                    tableau de bord : jauges CPU / RAM / temp, réseau (Ctrl+C pour quitter)
   image [-cover] [-loop N] <fichier>  affiche une image (png, jpg, gif animé, bmp, webp)
   text  [-color hex] [-bg hex] <texte>  affiche du texte, taille auto (\n = retour à la ligne)
   clear [-color hex]                remplit l'écran d'une couleur (noir par défaut)
@@ -83,7 +83,7 @@ func main() {
 		fs := flag.NewFlagSet("info", flag.ExitOnError)
 		interval := fs.Duration("interval", time.Second, "intervalle de rafraîchissement")
 		rotate := fs.Duration("rotate", 8*time.Second, "durée d'affichage de chaque page")
-		page := fs.Int("page", 0, "page fixe : 1 horloge, 2 jauges, 3 historiques (0 = rotation)")
+		page := fs.Int("page", 0, "page fixe : 1 jauges, 2 réseau (0 = rotation)")
 		fs.Parse(args)
 		check(runInfo(lcd, *interval, *rotate, *page-1))
 	case "image":
@@ -317,7 +317,7 @@ func runInfo(lcd *LCD, interval, rotate time.Duration, fixedPage int) error {
 		dt := now.Sub(last).Seconds()
 		last = now
 
-		s.Now, s.Uptime, s.Load = now, Uptime(), LoadAvg()
+		s.Uptime = Uptime()
 		s.CPU = cpu.Sample()
 		s.CPUTemp, s.TempOK = CPUTemp()
 		s.RAMUsed, s.RAMTotal = Memory()
@@ -327,13 +327,12 @@ func runInfo(lcd *LCD, interval, rotate time.Duration, fixedPage int) error {
 			s.RxRate, s.TxRate = float64(rx-rx0)/dt, float64(tx-tx0)/dt
 			rx0, tx0 = rx, tx
 		}
-		s.CPUHist = push(s.CPUHist, s.CPU)
 		s.RxHist = push(s.RxHist, s.RxRate)
 		s.TxHist = push(s.TxHist, s.TxRate)
 
 		page := max(0, fixedPage)
 		if fixedPage < 0 && rotate > 0 {
-			page = int(now.Sub(start)/rotate) % numPages
+			page = int(now.Sub(start)/rotate) % s.NumPages()
 		}
 		w, h := lcd.Size()
 		if err := lcd.Draw(renderDashboard(w, h, page, s), 0, 0); err != nil {
