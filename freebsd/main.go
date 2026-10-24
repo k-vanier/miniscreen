@@ -38,6 +38,7 @@ Commandes :
   brightness <0-100>                règle la luminosité
   version                           version du firmware de l'écran
   ports                             liste les ports série
+  debug                             envoie des carrés de taille croissante (diagnostic)
 
 Options :
 `
@@ -47,6 +48,9 @@ func main() {
 	portrait := flag.Bool("portrait", false, "orientation portrait (80x160) au lieu de paysage")
 	flip := flag.Bool("flip", false, "retourne l'affichage de 180°")
 	bright := flag.Int("brightness", -1, "luminosité 0-100 à appliquer avant la commande")
+	chunk := flag.Int("chunk", 0, "octets de pixels par écriture (0 = 4 lignes)")
+	chunkDelay := flag.Duration("chunkdelay", 0, "pause après chaque écriture de pixels (ex. 5ms)")
+	noDrain := flag.Bool("nodrain", false, "n'attend pas la fin de chaque écriture")
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, usage)
 		flag.PrintDefaults()
@@ -66,6 +70,7 @@ func main() {
 	lcd, err := OpenLCD(*port)
 	check(err)
 	defer lcd.Close()
+	lcd.Chunk, lcd.ChunkDelay, lcd.NoDrain = *chunk, *chunkDelay, *noDrain
 
 	var o byte = Landscape
 	if *portrait {
@@ -114,6 +119,8 @@ func main() {
 		v, err := strconv.Atoi(args[0])
 		check(err)
 		check(lcd.SetBrightness(v))
+	case "debug":
+		check(runDebug(lcd))
 	case "version":
 		v, err := lcd.Version()
 		check(err)
@@ -400,4 +407,45 @@ func runInfo(lcd *LCD, interval time.Duration) error {
 		}
 		time.Sleep(interval - time.Since(now))
 	}
+}
+
+// ---------- diagnostic ----------
+
+// runDebug affiche des carrés pleins de plus en plus grands en (0,0), chacun
+// d'une couleur différente : la dernière couleur visible donne la taille
+// de bitmap à partir de laquelle l'envoi échoue.
+func runDebug(lcd *LCD) error {
+	v, err := lcd.Version()
+	fmt.Printf("firmware : %q (err=%v)\n", v, err)
+	fmt.Printf("chunk=%d chunkdelay=%v nodrain=%v\n", lcd.Chunk, lcd.ChunkDelay, lcd.NoDrain)
+	if err := lcd.Fill(0, 0, 0); err != nil {
+		return err
+	}
+	fmt.Println("écran noir (commande Fill)")
+	time.Sleep(time.Second)
+	steps := []struct {
+		size int
+		name string
+		c    color.RGBA
+	}{
+		{2, "blanc", color.RGBA{255, 255, 255, 255}},
+		{4, "vert", color.RGBA{0, 255, 0, 255}},
+		{8, "bleu", color.RGBA{0, 0, 255, 255}},
+		{16, "jaune", color.RGBA{255, 255, 0, 255}},
+		{24, "cyan", color.RGBA{0, 255, 255, 255}},
+		{32, "magenta", color.RGBA{255, 0, 255, 255}},
+		{48, "orange", color.RGBA{255, 128, 0, 255}},
+		{64, "rose", color.RGBA{255, 128, 192, 255}},
+		{80, "vert clair", color.RGBA{128, 255, 128, 255}},
+	}
+	for _, s := range steps {
+		img := image.NewUniform(s.c)
+		sq := image.NewRGBA(image.Rect(0, 0, s.size, s.size))
+		draw.Draw(sq, sq.Bounds(), img, image.Point{}, draw.Src)
+		start := time.Now()
+		err := lcd.Draw(sq, 0, 0)
+		fmt.Printf("carré %2dx%-2d %-10s %5d octets  %v  err=%v\n", s.size, s.size, s.name, s.size*s.size*2, time.Since(start).Round(time.Millisecond), err)
+		time.Sleep(2 * time.Second)
+	}
+	return nil
 }

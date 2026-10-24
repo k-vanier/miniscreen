@@ -39,6 +39,11 @@ const (
 type LCD struct {
 	port        serial.Port
 	orientation byte
+
+	// Réglages d'envoi des bitmaps (diagnostic FreeBSD).
+	Chunk      int           // octets par écriture de pixels (0 = 4 lignes)
+	ChunkDelay time.Duration // pause après chaque écriture de pixels
+	NoDrain    bool          // n'attend pas la fin de chaque écriture
 }
 
 func isScreen(p PortInfo) bool { return p.VID == "1A86" && p.PID == "FE0C" }
@@ -86,9 +91,8 @@ func OpenLCD(name string) (*LCD, error) {
 
 func (l *LCD) Close() error { return l.port.Close() }
 
-// write envoie tout b puis attend qu'il soit parti (tcdrain), comme une
-// écriture synchrone sous Windows : sinon le tty FreeBSD enchaîne en-tête et
-// pixels d'un seul jet et l'écran ignore le bitmap. La bibliothèque ne relance
+// write envoie tout b puis, sauf NoDrain, attend qu'il soit parti (tcdrain),
+// comme une écriture synchrone sous Windows. La bibliothèque ne relance
 // ni les écritures partielles ni les appels interrompus par un signal.
 func (l *LCD) write(b []byte) error {
 	for len(b) > 0 {
@@ -101,12 +105,13 @@ func (l *LCD) write(b []byte) error {
 			return err
 		}
 	}
-	for {
+	for !l.NoDrain {
 		err := l.port.Drain()
 		if err != unix.EINTR {
 			return err
 		}
 	}
+	return nil
 }
 
 // Version renvoie la chaîne de version du firmware (réponse de 19 octets).
@@ -196,13 +201,17 @@ func (l *LCD) Draw(img image.Image, x, y int) error {
 	if err := l.write(hdr); err != nil {
 		return err
 	}
-	chunk := w * 4
+	chunk := l.Chunk
+	if chunk <= 0 {
+		chunk = w * 4
+	}
 	for len(data) > 0 {
 		n := min(chunk, len(data))
 		if err := l.write(data[:n]); err != nil {
 			return err
 		}
 		data = data[n:]
+		time.Sleep(l.ChunkDelay)
 	}
 	return nil
 }
