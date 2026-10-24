@@ -29,7 +29,7 @@ const usage = `miniscreen - pilote pour l'écran WeAct Display FS 0.96" (160x80)
 Usage : miniscreen [options] <commande> [arguments]
 
 Commandes :
-  info  [-interval 1s] [-rotate 8s] [-page N]
+  info  [-interval 1s] [-rotate 8s] [-page N] [-dark]
                                     tableau de bord : jauges CPU / RAM / temp, réseau (Ctrl+C pour quitter)
   image [-cover] [-loop N] <fichier>  affiche une image (png, jpg, gif animé, bmp, webp)
   text  [-color hex] [-bg hex] <texte>  affiche du texte, taille auto (\n = retour à la ligne)
@@ -84,7 +84,11 @@ func main() {
 		interval := fs.Duration("interval", time.Second, "intervalle de rafraîchissement")
 		rotate := fs.Duration("rotate", 8*time.Second, "durée d'affichage de chaque page")
 		page := fs.Int("page", 0, "page fixe : 1 jauges, 2 réseau (0 = rotation)")
+		dark := fs.Bool("dark", false, "thème sombre au lieu du thème clair")
 		fs.Parse(args)
+		if *dark {
+			pal = darkPalette
+		}
 		check(runInfo(lcd, *interval, *rotate, *page-1))
 	case "image":
 		fs := flag.NewFlagSet("image", flag.ExitOnError)

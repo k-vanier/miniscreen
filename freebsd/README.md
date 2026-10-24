@@ -86,7 +86,7 @@ miniscreen [options] <command> [arguments]
 
 | Command | What it does |
 |---|---|
-| `info [-interval 1s] [-rotate 8s] [-page N]` | Live dashboard with two pages: gauges and network (see below). Ctrl+C to quit. |
+| `info [-interval 1s] [-rotate 8s] [-page N] [-dark]` | Live dashboard with two pages: gauges and network (see below). Ctrl+C to quit. |
 | `image [-cover] [-loop N] <file>` | Shows an image (png, jpg, bmp, webp, animated GIF). Fitted with black bars by default; `-cover` fills the screen and crops. `-loop` = number of GIF loops (0 = forever). |
 | `text [-color hex] [-bg hex] <text>` | Shows text, font size chosen automatically to fit. `\n` = new line. |
 | `clear [-color hex]` | Fills the screen with a colour (black by default). |
@@ -118,6 +118,7 @@ miniscreen clear -color 202040
 
 `info` alternates two pages (every 8 s by default, `-rotate` to change it,
 `-page N` to stay on one page). Each page has a landscape and a portrait layout.
+The theme is light; `-dark` switches to a dark theme.
 
 1. **Gauges:** ring gauges for CPU, RAM and CPU temperature (plus GPU with an NVIDIA
    card), each in its own colour, turning red above 80 %, with hostname and uptime.

@@ -35,29 +35,52 @@ func (s *Stats) NumPages() int {
 	return 1
 }
 
-var (
-	cBg     = color.RGBA{8, 10, 18, 255}
-	cPanel  = color.RGBA{20, 24, 38, 255}
-	cTrack  = color.RGBA{36, 41, 60, 255}
-	cWhite  = color.RGBA{238, 240, 248, 255}
-	cGrey   = color.RGBA{120, 128, 150, 255}
-	cDim    = color.RGBA{88, 95, 120, 255}
-	cCyan   = color.RGBA{60, 200, 255, 255}
-	cViolet = color.RGBA{165, 120, 255, 255}
-	cOrange = color.RGBA{255, 150, 50, 255}
-	cPink   = color.RGBA{255, 90, 160, 255}
-	cGreen  = color.RGBA{80, 220, 120, 255}
-	cRed    = color.RGBA{255, 60, 60, 255}
-)
+type palette struct {
+	bg, panel, track, text, grey, dim      color.RGBA
+	cyan, violet, orange, pink, green, red color.RGBA
+}
+
+// Thème clair par défaut ; accents plus foncés pour rester lisibles sur blanc.
+var lightPalette = palette{
+	bg:     color.RGBA{246, 248, 251, 255},
+	panel:  color.RGBA{232, 236, 243, 255},
+	track:  color.RGBA{220, 225, 235, 255},
+	text:   color.RGBA{24, 28, 40, 255},
+	grey:   color.RGBA{95, 103, 125, 255},
+	dim:    color.RGBA{130, 137, 158, 255},
+	cyan:   color.RGBA{0, 145, 215, 255},
+	violet: color.RGBA{120, 75, 225, 255},
+	orange: color.RGBA{235, 115, 15, 255},
+	pink:   color.RGBA{220, 45, 125, 255},
+	green:  color.RGBA{20, 160, 75, 255},
+	red:    color.RGBA{215, 35, 35, 255},
+}
+
+var darkPalette = palette{
+	bg:     color.RGBA{8, 10, 18, 255},
+	panel:  color.RGBA{20, 24, 38, 255},
+	track:  color.RGBA{36, 41, 60, 255},
+	text:   color.RGBA{238, 240, 248, 255},
+	grey:   color.RGBA{120, 128, 150, 255},
+	dim:    color.RGBA{88, 95, 120, 255},
+	cyan:   color.RGBA{60, 200, 255, 255},
+	violet: color.RGBA{165, 120, 255, 255},
+	orange: color.RGBA{255, 150, 50, 255},
+	pink:   color.RGBA{255, 90, 160, 255},
+	green:  color.RGBA{80, 220, 120, 255},
+	red:    color.RGBA{255, 60, 60, 255},
+}
+
+var pal = lightPalette
 
 // alert fait virer la couleur d'une jauge au rouge au-delà de 80 %.
 func alert(c color.RGBA, pct float64) color.RGBA {
-	return lerpColor(c, cRed, (pct-80)/15)
+	return lerpColor(c, pal.red, (pct-80)/15)
 }
 
 func renderDashboard(w, h, page int, s *Stats) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	fillRect(img, img.Bounds(), cBg)
+	fillRect(img, img.Bounds(), pal.bg)
 	if page%s.NumPages() == 0 {
 		pageGauges(img, s)
 	} else {
@@ -76,14 +99,14 @@ type gauge struct {
 
 func (s *Stats) gauges() []gauge {
 	g := []gauge{
-		{"CPU", fmt.Sprintf("%.0f%%", s.CPU), s.CPU, cCyan},
-		{"RAM", fmt.Sprintf("%.0f%%", 100*s.RAMUsed/s.RAMTotal), 100 * s.RAMUsed / s.RAMTotal, cViolet},
+		{"CPU", fmt.Sprintf("%.0f%%", s.CPU), s.CPU, pal.cyan},
+		{"RAM", fmt.Sprintf("%.0f%%", 100*s.RAMUsed/s.RAMTotal), 100 * s.RAMUsed / s.RAMTotal, pal.violet},
 	}
 	if s.TempOK {
-		g = append(g, gauge{"TEMP", fmt.Sprintf("%.0f°", s.CPUTemp), s.CPUTemp, cOrange})
+		g = append(g, gauge{"TEMP", fmt.Sprintf("%.0f°", s.CPUTemp), s.CPUTemp, pal.orange})
 	}
 	if s.GPUOK {
-		g = append(g, gauge{"GPU", fmt.Sprintf("%.0f%%", s.GPULoad), s.GPULoad, cPink})
+		g = append(g, gauge{"GPU", fmt.Sprintf("%.0f%%", s.GPULoad), s.GPULoad, pal.pink})
 	}
 	return g
 }
@@ -94,14 +117,14 @@ func pageGauges(img *image.RGBA, s *Stats) {
 	lbl := face(9, true)
 	if w > h {
 		hdr := face(10, false)
-		drawString(img, hdr, 4, 10, s.Host, cGrey)
-		drawRight(img, hdr, w-4, 10, "up "+fmtUptime(s.Uptime), cDim)
+		drawString(img, hdr, 4, 10, s.Host, pal.grey)
+		drawRight(img, hdr, w-4, 10, "up "+fmtUptime(s.Uptime), pal.dim)
 		cell := float64(w) / float64(len(gs))
 		d := min(cell-6, 48)
 		for i, g := range gs {
 			cx := cell*float64(i) + cell/2
 			drawRing(img, cx, 16+d/2, d, g)
-			drawCentered(img, lbl, int(cx), int(16+d)+10, g.label, cGrey)
+			drawCentered(img, lbl, int(cx), int(16+d)+10, g.label, pal.grey)
 		}
 		return
 	}
@@ -110,16 +133,16 @@ func pageGauges(img *image.RGBA, s *Stats) {
 	for i, g := range gs {
 		cy := cell*float64(i) + (cell-10)/2
 		drawRing(img, float64(w)/2, cy, d, g)
-		drawCentered(img, lbl, w/2, int(cy+d/2)+10, g.label, cGrey)
+		drawCentered(img, lbl, w/2, int(cy+d/2)+10, g.label, pal.grey)
 	}
 }
 
 func drawRing(img *image.RGBA, cx, cy, d float64, g gauge) {
 	thick := max(4, d/8)
-	ring(img, cx, cy, d/2, thick, g.pct, alert(g.c, g.pct), cTrack)
+	ring(img, cx, cy, d/2, thick, g.pct, alert(g.c, g.pct), pal.track)
 	f := face(max(9, d*0.26), true)
 	asc := f.Metrics().CapHeight.Ceil()
-	drawCentered(img, f, int(cx+0.5), int(cy)+asc/2, g.value, cWhite)
+	drawCentered(img, f, int(cx+0.5), int(cy)+asc/2, g.value, pal.text)
 }
 
 // ---------- page 2 : réseau ----------
@@ -130,12 +153,12 @@ func pageNetwork(img *image.RGBA, s *Stats) {
 	fb := face(12, true)
 	var r image.Rectangle
 	if w > h {
-		drawString(img, fb, 4, 13, down, cGreen)
-		drawRight(img, fb, w-4, 13, up, cViolet)
+		drawString(img, fb, 4, 13, down, pal.green)
+		drawRight(img, fb, w-4, 13, up, pal.violet)
 		r = image.Rect(2, 18, w-2, h-2)
 	} else {
-		drawCentered(img, fb, w/2, 16, down, cGreen)
-		drawCentered(img, fb, w/2, 33, up, cViolet)
+		drawCentered(img, fb, w/2, 16, down, pal.green)
+		drawCentered(img, fb, w/2, 33, up, pal.violet)
 		r = image.Rect(2, 40, w-2, h-2)
 	}
 	panel(img, r)
@@ -144,12 +167,12 @@ func pageNetwork(img *image.RGBA, s *Stats) {
 	for i := range s.RxHist {
 		peak = max(peak, s.RxHist[i], s.TxHist[i])
 	}
-	areaChart(img, chart, s.RxHist, peak*1.1, cGreen)
-	lineChart(img, chart, s.TxHist, peak*1.1, cViolet)
+	areaChart(img, chart, s.RxHist, peak*1.1, pal.green)
+	lineChart(img, chart, s.TxHist, peak*1.1, pal.violet)
 }
 
 func panel(img *image.RGBA, r image.Rectangle) {
-	roundRect(img, r, 4, cPanel)
+	roundRect(img, r, 4, pal.panel)
 }
 
 // ---------- formats ----------
