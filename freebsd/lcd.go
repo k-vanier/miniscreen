@@ -62,12 +62,15 @@ func OpenLCD(name string) (*LCD, error) {
 	} else if !strings.HasPrefix(name, "/") {
 		name = "/dev/" + name // -port cuaU0
 	}
+	// DTR et RTS actifs comme sous Windows (go.bug.st/serial ne les force pas
+	// sous Unix) : l'écran CDC n'affiche rien sans DTR.
+	mode := &serial.Mode{BaudRate: 115200, InitialStatusBits: &serial.ModemOutputBits{DTR: true, RTS: true}}
 	// Sous FreeBSD, le TIOCSETA d'umodem attend une requête USB et peut être
 	// interrompu par un signal (EINTR) ; go.bug.st/serial ne le relance pas.
 	var p serial.Port
 	var err error
 	for try := 0; try < 10; try++ {
-		p, err = serial.Open(name, &serial.Mode{BaudRate: 115200})
+		p, err = serial.Open(name, mode)
 		if err == nil || !strings.Contains(err.Error(), unix.EINTR.Error()) {
 			break
 		}
