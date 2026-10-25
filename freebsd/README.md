@@ -4,7 +4,7 @@ Command-line driver for the WeAct Studio **Display FS 0.96 Inch** USB screen
 (160x80 IPS, USB CDC serial, VID `1A86` / PID `FE0C`), for FreeBSD.
 It shows a live CPU / RAM / temperature / network dashboard, images, animated GIFs or text.
 
-This is the FreeBSD port of [miniscreenWin](../miniscreenWin): same commands, with
+This is the FreeBSD port of [miniscreenWin](../windows): same commands, with
 FreeBSD port detection and system readings, and a new dashboard.
 
 | Gauges | Network |
